@@ -27,6 +27,7 @@
         listBottom: Math.floor(device.height * 0.99),
         titleMinWidth: Math.floor(device.width * 0.20),
         titleLeft: Math.floor(device.width * 0.34),
+        titleMaxLeft: Math.floor(device.width * 0.48),
         titleToMetadataMaxY: 280,
         settleDelayMs: [1200, 1800],
         detailLoadDelayMs: 1800,
@@ -196,6 +197,7 @@
     function isMerchantTitle(record) {
         const width = record.bounds.right - record.bounds.left;
         return record.bounds.left >= CONFIG.titleLeft
+            && record.bounds.left <= CONFIG.titleMaxLeft
             && width >= CONFIG.titleMinWidth
             && record.text.length >= 3
             && !isCardMetadata(record.text);
@@ -210,7 +212,7 @@
     }
 
     function isCardMetadata(text) {
-        return /月[售销]|起送|配送|美团快送|堂食店|无堂食|明厨亮灶|神券|满\d|减\d|评分|评价|优惠|推荐|广告|平台|食安|严管|放心|最近\d|近期\d|人下单|人好评|刚刚有用户看过|附近美食|分钟|商家排行|排行榜|^\d+(?:\.\d+)?分/.test(text);
+        return /月[售销]|起送|配送|美团快送|堂食店|无堂食|明厨亮灶|神券|满\d|减\d|评分|评价|优惠|推荐|广告|平台|食安|严管|放心|最近\d|近期\d|\d+人(?:觉得|好评|下单|看过)|用户.*(?:看过|好评|下单)|刚刚有用户看过|附近美食|高分店铺|高分商家|分钟|商家排行|排行榜|^\d+(?:\.\d+)?分/.test(text);
     }
 
     function writeListMerchant(card, viewport) {
@@ -425,6 +427,7 @@
         try {
             const stored = JSON.parse(files.read(CONFIG.databasePath));
             if (stored && stored.version === DATABASE_VERSION && stored.merchants) {
+                purgeTagRecords(stored.merchants);
                 return stored;
             }
         } catch (error) {
@@ -432,6 +435,15 @@
         }
         console.warn('店名数据库版本已更新，将忽略旧采集结果。');
         return { merchants: {} };
+    }
+
+    function purgeTagRecords(merchants) {
+        Object.keys(merchants).forEach(key => {
+            if (isCardMetadata(merchants[key].name)) {
+                console.warn(`清理历史标签记录：${merchants[key].name}`);
+                delete merchants[key];
+            }
+        });
     }
 
     function centerY(record) {
