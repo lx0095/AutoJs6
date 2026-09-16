@@ -37,6 +37,10 @@
 
     console.show();
     const database = loadDatabase();
+    const existingMerchantKeys = Object.keys(database.merchants).reduce((keys, key) => {
+        keys[key] = true;
+        return keys;
+    }, {});
     console.log('请保持在美团商家列表页，3 秒后开始采集。');
     sleep(3000);
 
@@ -212,8 +216,8 @@
     function writeListMerchant(card, viewport) {
         const key = merchantKey(card.name);
         const previous = database.merchants[key];
-        if (previous && previous.monthlySales) {
-            console.log(`列表跳过已有月售：${card.name}`);
+        if (existingMerchantKeys[key]) {
+            console.log(`断点续传跳过已有商家：${card.name}`);
             return;
         }
         upsertMerchant({
@@ -230,7 +234,7 @@
     function fillMissingSalesFromDetail(card, viewport) {
         const key = merchantKey(card.name);
         const merchant = database.merchants[key];
-        if (!merchant || merchant.monthlySales || merchant.detailAttempted) {
+        if (existingMerchantKeys[key] || !merchant || merchant.monthlySales || merchant.detailAttempted) {
             return;
         }
         const currentTitle = visibleTextNodes().find(node => node.text === card.name) || card.title;
