@@ -216,7 +216,7 @@
     }
 
     function writeListMerchant(card, viewport) {
-        const key = merchantKey(card.name);
+        const key = resolveMerchantKey(card.name, card.monthlySales);
         const previous = database.merchants[key];
         if (existingMerchantKeys[key]) {
             console.log(`断点续传跳过已有商家：${card.name}`);
@@ -234,7 +234,7 @@
     }
 
     function fillMissingSalesFromDetail(card, viewport) {
-        const key = merchantKey(card.name);
+        const key = resolveMerchantKey(card.name, card.monthlySales);
         const merchant = database.merchants[key];
         if (existingMerchantKeys[key] || !merchant || merchant.monthlySales || merchant.detailAttempted) {
             return;
@@ -387,9 +387,10 @@
     }
 
     function upsertMerchant(merchant) {
-        const previous = database.merchants[merchant.key] || {};
-        database.merchants[merchant.key] = {
-            name: merchant.name,
+        const key = resolveMerchantKey(merchant.name, merchant.monthlySales);
+        const previous = database.merchants[key] || {};
+        database.merchants[key] = {
+            name: longerMerchantName(previous.name, merchant.name),
             monthlySales: merchant.monthlySales || previous.monthlySales || null,
             distance: merchant.distance || previous.distance || null,
             viewport: merchant.viewport,
@@ -398,7 +399,7 @@
             updatedAt: new Date().toISOString(),
         };
         writeDatabaseAndResults();
-        console.log(`写入商家：${JSON.stringify(database.merchants[merchant.key])}`);
+        console.log(`写入商家：${JSON.stringify(database.merchants[key])}`);
     }
 
     function writeDatabaseAndResults() {
@@ -428,6 +429,7 @@
             const stored = JSON.parse(files.read(CONFIG.databasePath));
             if (stored && stored.version === DATABASE_VERSION && stored.merchants) {
                 purgeTagRecords(stored.merchants);
+                mergeTruncatedMerchantRecords(stored.merchants);
                 return stored;
             }
         } catch (error) {
@@ -444,6 +446,67 @@
                 delete merchants[key];
             }
         });
+    }
+
+    function mergeTruncatedMerchantRecords(merchants) {
+        const keys = Object.keys(merchants);
+        for (let i = 0; i < keys.length; i++) {
+            for (let j = i + 1; j < keys.length; j++) {
+                const firstKey = keys[i];
+                const secondKey = keys[j];
+                if (!merchants[firstKey] || !merchants[secondKey]
+                    || !sameMerchantPrefix(firstKey, secondKey)
+                    || !sameMonthlySales(merchants[firstKey].monthlySales, merchants[secondKey].monthlySales)) {
+                    continue;
+                }
+                const targetKey = firstKey.length >= secondKey.length ? firstKey : secondKey;
+                const sourceKey = targetKey === firstKey ? secondKey : firstKey;
+                const target = merchants[targetKey];
+                const source = merchants[sourceKey];
+                merchants[targetKey] = {
+                    name: longerMerchantName(target.name, source.name),
+                    monthlySales: target.monthlySales || source.monthlySales || null,
+                    distance: target.distance || source.distance || null,
+                    viewport: target.viewport || source.viewport,
+                    source: target.source || source.source,
+                    detailAttempted: Boolean(target.detailAttempted || source.detailAttempted),
+                    updatedAt: target.updatedAt || source.updatedAt,
+                };
+                delete merchants[sourceKey];
+                console.warn(`合并截断店名（相同月售）：${source.name} -> ${merchants[targetKey].name}`);
+            }
+        }
+    }
+
+    function resolveMerchantKey(name, monthlySales) {
+        const key = merchantKey(name);
+        if (!monthlySales) {
+            return key;
+        }
+        const existingKey = Object.keys(database.merchants)
+            .filter(candidate => sameMerchantPrefix(candidate, key))
+            .filter(candidate => sameMonthlySales(database.merchants[candidate].monthlySales, monthlySales))
+            .sort((a, b) => b.length - a.length)[0];
+        return existingKey || key;
+    }
+
+    function sameMerchantPrefix(first, second) {
+        const minimumLength = Math.min(first.length, second.length);
+        return minimumLength >= 10 && (first.indexOf(second) === 0 || second.indexOf(first) === 0);
+    }
+
+    function sameMonthlySales(first, second) {
+        return Boolean(first) && first === second;
+    }
+
+    function longerMerchantName(first, second) {
+        const firstName = String(first || '');
+        const secondName = String(second || '');
+        return merchantNameLength(secondName) > merchantNameLength(firstName) ? secondName : firstName || secondName;
+    }
+
+    function merchantNameLength(name) {
+        return String(name).replace(/[^0-9a-z\u4e00-\u9fa5]/gi, '').length;
     }
 
     function centerY(record) {
